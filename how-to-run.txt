@@ -1,0 +1,3 @@
+#How to run
+
+ansible-playbook tomcat9.yml -i 'IP_ADDRESS,' -e 'my_playbook_hosts=IP_ADDRESS' -e'app_name=app' -e @vars.yml -b --ask-vault-password
