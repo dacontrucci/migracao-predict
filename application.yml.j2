@@ -1,0 +1,25 @@
+# v1
+spring:
+  application:
+    name: {{ app_name|lower }}-api
+  redis:
+    password: 'fH/iZM35E2e1ENt9Q4PGCUSeAGGbHM8uFGMgFshFD15qJKZyJxBmWrHDmINzt2Zkqv9pP9bRIy9/02DZ'
+  datasource:
+    url: jdbc:mariadb://localhost/{{  'db_uc_' + app_name|lower  }}
+    username: '{{ app_name|lower }}-predict'
+    password: '{{ app_name|reverse + app_name|length|string }}'
+    hikari:
+      maximum-pool-size: 100
+      minimum-idle: 10
+uno:
+  classico:
+    url: http://localhost:8080/{{ app_name|capitalize }}/api
+  api:
+    credentials:
+      api-key: 'JJ5JT6TTCC66PWK7ZBSY'
+  update:
+    command: /root/crontab/atualizador/atualizador.sh
+logging:
+  level:
+    br.com.unosolucoes: INFO
+    br.com.unosolucoes.unoerp.core.listeners: INFO

@@ -1,0 +1,183 @@
+---
+- name: Atualiza Servidores para o Tomcat 9 e Java 17
+  hosts: '{{ my_playbook_hosts }}' 
+  gather_facts: false
+
+  tasks:
+
+    - name: Valida se ha um link configurado para o tomcat
+      stat:
+        path: /var/tomcat
+      register: tomcat
+      failed_when: tomcat.stat.islnk is not defined or tomcat.stat.islnk == False
+
+    - name:
+      debug:
+        msg: "O caminho do link encontrao é: {{ tomcat.stat.lnk_target }} "
+
+
+    - name: Valida se o java esta instalado
+      stat:
+        path: /usr/java/jdk
+      register: java
+      failed_when: java.stat.islnk is not defined or java.stat.islnk == False
+
+    - name: 
+      debug:
+        msg: "O caminho do link encontrao é: {{ java.stat.lnk_target }} "
+
+    - name: Vamos configurar?
+      debug:
+        msg: 'Vamos atualizar?'
+      failed_when: tomcat.stat.lnk_target == '/var/apache-tomcat-9.0.80/' 
+
+    - name: Para o serviço do Tomcat
+      systemd:
+        name: tomcat.service
+        state: stopped
+
+
+    - name: APT | Install Redis
+      apt:
+        name: [ 'redis','python-is-python3' ]
+        update_cache: true
+        autoclean: yes
+        state: latest
+
+    - name: Configura a senha para o redis
+      lineinfile:
+        path: /etc/redis/redis.conf
+        regexp: '^requirepass'
+        line: 'requirepass fH/iZM35E2e1ENt9Q4PGCUSeAGGbHM8uFGMgFshFD15qJKZyJxBmWrHDmINzt2Zkqv9pP9bRIy9/02DZ'
+
+    - name: Reinicia Redis
+      service:
+        name: redis
+        state: restarted
+
+    - name: Cria o diretório de configuração
+      file:
+        dest: "/etc/unoerp/{{ app_name }}"
+        owner: unosol
+        group: tomcat
+        mode: '750'
+        state: directory
+
+    - name: Cria application.yml
+      template:
+        src: application.yml.j2
+        dest: /etc/unoerp/{{ app_name|lower }}/application.yml
+        mode: '640'
+        owner: unosol
+        group: tomcat
+
+
+    - name: Transfere Java 17
+      unarchive:
+        copy: true
+        src: "OpenJDK17U-jre_x64_linux_hotspot_17.0.8.1_1.tar.gz"
+        dest: "/usr/java/"
+
+    - name: Remove o link jdk
+      file:
+        state: absent
+        path: "/usr/java/jdk"
+
+    - name: Cria o novo link jdk
+      file:
+        state: link
+        src: "/usr/java/jdk-17.0.8.1+1-jre"
+        dest: "/usr/java/jdk"
+
+
+    - name: Transfere Tomcat 9
+      unarchive:
+        copy: true
+        src: "apache-tomcat-9.0.80_uno.tar.gz"
+        dest: "/var/"
+
+    - name: Ajusta as permissoes do Tomcat
+      shell:
+        chdir: /var/apache-tomcat-9.0.80
+        cmd: chown tomcat:tomcat . --dereference -HL -R && find . -type d -exec chmod 2770 {} \+ && find . -type f -exec chmod 660 {} \+ && chmod 770 ./bin/*.sh
+        executable: /bin/bash
+
+    - name: Move os arquivos da aplicação
+      shell:
+        cmd: "{{ item }}"
+        executable: /bin/bash
+      loop:
+        - mv /var/tomcat/webapps/*.war /var/apache-tomcat-9.0.80/webapps/
+        - mv /var/tomcat/webapps/UCOMMERCE /var/apache-tomcat-9.0.80/webapps/
+
+    - name: Remove o link do tomcat
+      file:
+        state: absent
+        path: /var/tomcat
+
+    - name: Cria novo link para o tomcat
+      file:
+        state: link
+        src: "/var/apache-tomcat-9.0.80/"
+        dest: "/var/tomcat"
+
+    - name: Atualiza o daemon do Tomcat
+      replace:
+        path: /etc/systemd/system/tomcat.service
+        regexp: "{{ item.0 }}"
+        replace: "{{ item.1 }}"
+        backup: yes
+      with_together:
+        - '{{ ["Tomcat 8","-Xss256k","-XX:\+CMSClassUnloadingEnabled","-XX:\+UseG1GC","-Xms256M","-XX:MetaspaceSize=128m"] }}'
+        - '{{ ["Tomcat 9","-Xss256m","","-XX:+UseShenandoahGC -XX:+UnlockExperimentalVMOptions -XX:ShenandoahUncommitDelay=1000 -XX:ShenandoahGuaranteedGCInterval=10000","-Xms32m","-XX:MetaspaceSize=32m"] }}'
+
+    - name: Copia unoerp-api
+      copy:    
+        src: unoerp-api.war
+        dest: /var/tomcat/webapps/{{ app_name|lower }}-api.war
+        mode: '660'
+        owner: unosol
+        group: tomcat
+
+    - name: Copia unoerp-web
+      copy:
+        src: unoerp-web.war
+        dest: /var/tomcat/webapps/{{ app_name|lower }}-web.war
+        mode: '660'
+        owner: unosol
+        group: tomcat
+
+    - name: Altera nginx
+      replace:
+        path: /etc/nginx/sites-available/default
+        regexp: '\|UCOMMERCE\|' 
+        replace: '  location ~ /({{ app_name|capitalize }}|{{ app_name|lower }}-api|{{ app_name|lower }}-web|UCOMMERCE|Desenv) {'
+        backup: true
+
+    - name: Reinicia nginx
+      service:
+        name: nginx
+        state: restarted
+
+    - name: Cria usuario predict
+      mysql_user:
+        name: '{{ app_name|lower }}-predict'
+        password: '{{ app_name|lower|reverse + app_name|length|string }}'
+        priv: '{{ "db_uc_" + app_name|lower }}.*:ALL'
+        host: 'localhost'
+        login_user: root
+        login_password: ''
+
+    - name: Inicia o daemon do Tomcat
+      systemd:
+        name: tomcat.service
+        state: started
+        daemon_reload: true
+
+    - name: APT | Install Redis
+      apt:
+        name: python-is-python2
+        autoclean: yes
+        state: latest
+
+...
