@@ -1,3 +1,5 @@
 *.war
 *.gz
 *.bz2
+*.retry
+VM/
