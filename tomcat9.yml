@@ -150,7 +150,7 @@
     - name: Altera nginx
       replace:
         path: /etc/nginx/sites-available/default
-        regexp: '\|UCOMMERCE\|' 
+        regexp: '^\s+location\s~\s/\([\w*\-\|]+\|UCOMMERCE\|[\w*\-|]+\) {' 
         replace: '  location ~ /({{ app_name|capitalize }}|{{ app_name|lower }}-api|{{ app_name|lower }}-web|UCOMMERCE|Desenv) {'
         backup: true
 
@@ -174,9 +174,10 @@
         state: started
         daemon_reload: true
 
-    - name: APT | Install Redis
+    - name: APT | Install python-is-python2
       apt:
         name: python-is-python2
+        update-cache: true
         autoclean: yes
         state: latest
 
